@@ -1,0 +1,47 @@
+{
+  "name": "rag",
+  "version": "1.0.0",
+  "description": "Local RAG Studio & Obsidian Graph",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n \"EMBED,API,VITE\" -c \"green,blue,magenta\" \"npm run python\" \"npm run server\" \"npm run client\"",
+    "python": ".\\.venv\\Scripts\\python python_service/app.py",
+    "server": "tsx watch --watch server server/index.ts",
+    "client": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@qdrant/js-client-rest": "^1.20.0",
+    "clsx": "^2.1.1",
+    "cors": "^2.8.6",
+    "d3-force-3d": "^3.0.6",
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "lucide-react": "^1.66.0",
+    "mammoth": "^1.13.0",
+    "multer": "^2.5.0",
+    "officeparser": "^8.4.1",
+    "pdf-parse": "^2.4.5",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-force-graph-2d": "^1.29.2",
+    "tailwind-merge": "^3.7.0",
+    "word-extractor": "^1.0.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.3.0",
+    "@types/node": "^26.6.6",
+    "@types/pdf-parse": "^1.1.5",
+    "@vitejs/plugin-react": "^6.1.2",
+    "autoprefixer": "^10.6.2",
+    "concurrently": "^10.0.6",
+    "postcss": "^8.5.32",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  }
+}

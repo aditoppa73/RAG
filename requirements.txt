@@ -1,0 +1,15 @@
+fastapi>=0.115.0
+uvicorn>=0.30.0
+python-multipart>=0.0.9
+torch>=2.4.0
+transformers>=4.45.0
+accelerate>=0.34.0
+sentence-transformers>=3.0.0
+docling>=2.0.0
+pypdf>=5.0.0
+pandas>=2.2.0
+openpyxl>=3.1.0
+xlrd>=2.0.1
+pillow>=10.4.0
+python-pptx>=1.0.0
+pydantic>=2.8.0

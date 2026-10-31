@@ -101,11 +101,5 @@ Il comando `npm run dev` avvierà simultaneamente:
 
 ---
 
-## 📊 Presentazione del Progetto
-È inclusa una presentazione PowerPoint professionale a 5 slide in formato 16:9 widescreen con immagini della GUI:
-- [`Presentazione_RAG_Studio.pptx`](./Presentazione_RAG_Studio.pptx)
-
----
-
 ## 📄 Licenza
 Rilasciato sotto licenza [MIT](LICENSE).

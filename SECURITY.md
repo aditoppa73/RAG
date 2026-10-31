@@ -20,3 +20,4 @@ This application is designed as a **Local On-Premise Studio**. Please keep the f
 
 3. **Reporting a Vulnerability**:
    - If you discover a security vulnerability, please open a private security advisory or contact the maintainer via GitHub issues/discussions.
+

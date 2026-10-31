@@ -25,7 +25,7 @@ def create_deck(output_path):
     TEXT_MUTED = RGBColor(139, 148, 158)    # #8b949e
     TEXT_BODY = RGBColor(201, 209, 217)     # #c9d1d9
 
-    base_dir = r"C:\IA\Progetti Claude\RAG"
+    base_dir = os.path.dirname(os.path.abspath(__file__))
     img_ingest = os.path.join(base_dir, "screenshot_ingest.png")
     img_search = os.path.join(base_dir, "screenshot_search.png")
     img_graph = os.path.join(base_dir, "screenshot_graph.png")

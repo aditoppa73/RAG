@@ -882,7 +882,7 @@ export const IngestionView: React.FC<IngestionViewProps> = ({
             <div className="flex items-center gap-2">
               <input
                 type="text"
-                placeholder="Es: C:\IA\Progetti Claude\RAG\Modelli"
+                placeholder="Es: C:\Documenti\Progetti"
                 value={localFolderPath}
                 onChange={(e) => setLocalFolderPath(e.target.value)}
                 className="flex-1 bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono transition"

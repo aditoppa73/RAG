@@ -16,6 +16,29 @@ Una piattaforma enterprise autonoma, **100% on-premise** e privacy-first per:
 
 ---
 
+## 📸 Anteprima Interfaccia Utente
+
+### 1. Ingestion Documentale Ricorsiva & Monitor Coda
+> Scansione ricorsiva di cartelle e sottocartelle del sistema locale, estrazione multi-formato (Docling + Pandas), coda di lavoro interattiva e log in tempo reale stile terminale.
+
+![Ingestion Studio](./screenshot_ingest.png)
+
+---
+
+### 2. Ricerca Semantica RAG & Perimetro Documenti
+> Interrogazione vettoriale su GPU con slider della soglia minima di accuratezza a passo unitario (1%) e scheda ambito collezione per conoscere l'esatto perimetro dei documenti indicizzati.
+
+![Ricerca Semantica RAG](./screenshot_search.png)
+
+---
+
+### 3. Obsidian Knowledge Graph Studio
+> Mappa interattiva delle correlazioni semantiche con controlli di navigazione (Zoom In/Out, Fit-to-Screen), visualizzazione a livello Documento o Chunk e clustering pesato per similarità coseno.
+
+![Obsidian Knowledge Graph](./screenshot_graph.png)
+
+---
+
 ## 🏛️ Architettura di Sistema
 
 ```mermaid
@@ -62,7 +85,7 @@ python -m venv .venv
 source .venv/bin/activate # su Windows: .\.venv\Scripts\Activate.ps1
 
 # Installa le dipendenze
-pip install -r requirements.txt # oppure le dipendenze in python_service/
+pip install -r requirements.txt
 ```
 
 ### 3. Installa le Dipendenze Node e Avvia la Piattaforma

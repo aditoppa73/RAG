@@ -41,8 +41,6 @@ services:
         until OLLAMA_HOST=ollama:11434 ollama list > /dev/null 2>&1; do sleep 1; done
         echo 'Verifica modello LLM (gemma2:2b)...'
         OLLAMA_HOST=ollama:11434 ollama pull gemma2:2b
-        echo 'Verifica modello Embedding (embeddinggemma)...'
-        OLLAMA_HOST=ollama:11434 ollama pull embeddinggemma
         echo 'Modelli pronti e persistiti in ./ollama_storage.'
       "
     restart: "no"

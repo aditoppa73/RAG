@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Search,
   Sliders,
@@ -17,7 +17,9 @@ import {
   ExternalLink,
   Bot,
   Cpu,
-  BookOpen
+  BookOpen,
+  Eye,
+  X
 } from 'lucide-react';
 
 interface SearchResult {
@@ -72,6 +74,115 @@ export const SearchView: React.FC<SearchViewProps> = ({
   const [isLoadingInfo, setIsLoadingInfo] = useState(false);
   const [showDocDrawer, setShowDocDrawer] = useState(false);
   const [docSearchQuery, setDocSearchQuery] = useState('');
+
+  // Group results by unique file name for the AI Answer card (shows each file only once, with pages/paragraphs)
+  const groupedConsultedSources = useMemo(() => {
+    const map = new Map<string, {
+      fileName: string;
+      fullSource: string;
+      pages: Set<number | string>;
+      paragraphs: Set<number>;
+    }>();
+
+    results.forEach((r) => {
+      const fileName = r.source.split('/').pop()?.split('\\').pop() || r.source;
+      if (!map.has(fileName)) {
+        map.set(fileName, {
+          fileName,
+          fullSource: r.source,
+          pages: new Set<number | string>(),
+          paragraphs: new Set<number>()
+        });
+      }
+      const item = map.get(fileName)!;
+      if (r.metadata?.page !== undefined && r.metadata?.page !== null) {
+        item.pages.add(r.metadata.page);
+      }
+      if (r.chunkIndex !== undefined && r.chunkIndex !== null) {
+        item.paragraphs.add(r.chunkIndex + 1);
+      }
+    });
+
+    return Array.from(map.values());
+  }, [results]);
+
+  // In-App Document Viewer states (Soluzione A)
+  const [viewerState, setViewerState] = useState<{
+    isOpen: boolean;
+    source: string;
+    fileName: string;
+    targetParagraph: number;
+    matchedParagraphs: number[];
+  }>({
+    isOpen: false,
+    source: '',
+    fileName: '',
+    targetParagraph: 1,
+    matchedParagraphs: []
+  });
+  const [viewerChunks, setViewerChunks] = useState<Array<{
+    chunkIndex: number;
+    text: string;
+    totalChunks?: number;
+    metadata?: Record<string, any>;
+  }>>([]);
+  const [viewerLoading, setViewerLoading] = useState(false);
+  const [copiedViewerIdx, setCopiedViewerIdx] = useState<number | null>(null);
+  const [copiedAllDoc, setCopiedAllDoc] = useState(false);
+
+  const openDocumentViewer = async (source: string, targetPara: number, matchedParas: number[] = []) => {
+    const fileName = source.split('/').pop()?.split('\\').pop() || source;
+    setViewerState({
+      isOpen: true,
+      source,
+      fileName,
+      targetParagraph: targetPara,
+      matchedParagraphs: matchedParas.length > 0 ? matchedParas : [targetPara]
+    });
+    setViewerLoading(true);
+
+    try {
+      const res = await fetch(`/api/collections/${encodeURIComponent(activeCollection)}/documents/${encodeURIComponent(source)}/chunks`);
+      if (res.ok) {
+        const data = await res.json();
+        setViewerChunks(data.chunks || []);
+      } else {
+        setViewerChunks([]);
+      }
+    } catch (err) {
+      console.error('Error loading document chunks:', err);
+      setViewerChunks([]);
+    } finally {
+      setViewerLoading(false);
+    }
+  };
+
+  const copyChunkText = (idx: number, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedViewerIdx(idx);
+    setTimeout(() => setCopiedViewerIdx(null), 2000);
+  };
+
+  const copyEntireDocument = () => {
+    if (viewerChunks.length === 0) return;
+    const full = viewerChunks.map((c) => c.text).join('\n\n');
+    navigator.clipboard.writeText(full);
+    setCopiedAllDoc(true);
+    setTimeout(() => setCopiedAllDoc(false), 2000);
+  };
+
+  // Auto-scroll to target paragraph when chunks load or target changes
+  useEffect(() => {
+    if (viewerState.isOpen && !viewerLoading && viewerChunks.length > 0) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById(`doc-chunk-${viewerState.targetParagraph}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [viewerState.isOpen, viewerLoading, viewerState.targetParagraph, viewerChunks]);
 
   // Fetch available LLMs from Ollama
   const fetchAvailableModels = useCallback(async () => {
@@ -251,46 +362,62 @@ export const SearchView: React.FC<SearchViewProps> = ({
       {/* Search Bar Form */}
       <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-5 shadow-xl">
         <form onSubmit={handleAskAi} className="space-y-4">
-          <div className="relative flex items-center">
-            <Search className="absolute left-4 w-5 h-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Fai una domanda sui tuoi documenti (es: 'Quali sono i termini contrattuali di rinnovo?')..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="w-full bg-[#0d1117] border border-[#30363d] focus:border-purple-500 rounded-xl pl-12 pr-64 py-3.5 text-base text-gray-100 placeholder-gray-500 focus:outline-none transition"
-            />
+          <div className="relative bg-[#0d1117] border border-[#30363d] focus-within:border-purple-500 rounded-xl transition shadow-inner">
+            <div className="flex items-start p-3 gap-3">
+              <Search className="w-5 h-5 text-gray-400 mt-1 shrink-0" />
+              <textarea
+                placeholder="Fai una domanda sui tuoi documenti (es: 'Quali sono i termini contrattuali di rinnovo?')..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!loading && !isAiGenerating && query.trim()) {
+                      handleAskAi();
+                    }
+                  }
+                }}
+                rows={3}
+                className="w-full bg-transparent text-base text-gray-100 placeholder-gray-500 focus:outline-none resize-y min-h-[72px] leading-relaxed font-sans"
+              />
+            </div>
             
-            {/* Action buttons inside search bar */}
-            <div className="absolute right-2 flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={handleSearchOnly}
-                disabled={loading || isAiGenerating || !query.trim()}
-                title="Cerca solo i frammenti vettoriali senza passare da LLM"
-                className="px-3.5 py-2 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 hover:text-white font-medium text-xs disabled:opacity-50 transition border border-[#30363d]"
-              >
-                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Solo Frammenti'}
-              </button>
-              
-              <button
-                type="submit"
-                disabled={loading || isAiGenerating || !query.trim()}
-                title="Genera risposta con Gemma 2 / LLM basata sui documenti"
-                className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-semibold text-xs disabled:opacity-50 transition shadow-lg flex items-center gap-1.5"
-              >
-                {isAiGenerating ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Analisi...</span>
-                  </>
-                ) : (
-                  <>
-                    <Bot className="w-3.5 h-3.5" />
-                    <span>Rispondi con AI</span>
-                  </>
-                )}
-              </button>
+            {/* Action buttons inside the lower toolbar of the input */}
+            <div className="flex items-center justify-between px-3 py-2 border-t border-[#30363d]/50 bg-[#12161f]/50 rounded-b-xl flex-wrap gap-2">
+              <span className="text-[11px] text-gray-500">
+                <kbd className="px-1.5 py-0.5 rounded bg-[#21262d] border border-[#30363d] text-[10px] text-gray-400 font-mono">Invio</kbd> per chiedere con AI, <kbd className="px-1.5 py-0.5 rounded bg-[#21262d] border border-[#30363d] text-[10px] text-gray-400 font-mono">Shift + Invio</kbd> per andare a capo
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSearchOnly}
+                  disabled={loading || isAiGenerating || !query.trim()}
+                  title="Cerca solo i frammenti vettoriali senza passare da LLM"
+                  className="px-3.5 py-2 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 hover:text-white font-medium text-xs disabled:opacity-50 transition border border-[#30363d]"
+                >
+                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Solo Frammenti'}
+                </button>
+                
+                <button
+                  type="submit"
+                  disabled={loading || isAiGenerating || !query.trim()}
+                  title="Genera risposta con Gemma 2 / LLM basata sui documenti"
+                  className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-semibold text-xs disabled:opacity-50 transition shadow-lg flex items-center gap-1.5"
+                >
+                  {isAiGenerating ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Analisi...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Bot className="w-3.5 h-3.5" />
+                      <span>Rispondi con AI</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -581,23 +708,62 @@ export const SearchView: React.FC<SearchViewProps> = ({
             {aiAnswer}
           </div>
 
-          {/* Consulted Source Files Summary */}
-          {results.length > 0 && (
-            <div className="pt-3 border-t border-purple-900/40 flex flex-wrap items-center gap-2">
-              <span className="text-xs text-purple-300 font-semibold flex items-center gap-1.5 mr-1">
-                <FileText className="w-3.5 h-3.5 text-purple-400" />
-                Documenti consultati:
-              </span>
-              {Array.from(new Set(results.map((r) => r.source))).map((src, idx) => (
-                <span
-                  key={idx}
-                  title={src}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono bg-[#0d0c18] text-purple-200 border border-purple-700/50 hover:border-purple-400 transition"
-                >
-                  <span className="text-purple-400 font-sans font-bold">📄</span>
-                  <span className="truncate max-w-xs">{src}</span>
+          {/* Consulted Source Files Summary (Each file shown once with page/paragraph) */}
+          {groupedConsultedSources.length > 0 && (
+            <div className="pt-4 border-t border-purple-900/40 space-y-2.5">
+              <div className="flex items-center justify-between text-xs text-purple-300 font-semibold">
+                <span className="flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-purple-400" />
+                  Documenti consultati ({groupedConsultedSources.length}):
                 </span>
-              ))}
+              </div>
+              <div className="flex flex-wrap gap-2.5">
+                {groupedConsultedSources.map((doc, idx) => {
+                  const pagesArr = Array.from(doc.pages).sort((a, b) => Number(a) - Number(b));
+                  const parasArr = Array.from(doc.paragraphs).sort((a, b) => a - b);
+                  const firstPara: number = parasArr[0] ?? 1;
+
+                  return (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs bg-[#0d0c18] border border-purple-800/40 text-purple-200 shadow-sm hover:border-purple-500/70 transition group flex-wrap"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => openDocumentViewer(doc.fullSource, firstPara, parasArr)}
+                        className="flex items-center gap-1.5 hover:text-white transition font-mono font-medium text-purple-100 text-left cursor-pointer"
+                        title="Clicca per aprire il lettore ed evidenziare i passaggi della risposta"
+                      >
+                        <span className="text-sm">📄</span>
+                        <span className="max-w-xs truncate underline decoration-purple-600/50 underline-offset-4 group-hover:decoration-purple-300">
+                          {doc.fileName}
+                        </span>
+                      </button>
+                      
+                      {/* Page badge if available */}
+                      {pagesArr.length > 0 && (
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-purple-950 text-purple-300 border border-purple-700/60 font-semibold">
+                          {pagesArr.length === 1 ? `Pag. ${pagesArr[0]}` : `Pagg. ${pagesArr.join(', ')}`}
+                        </span>
+                      )}
+
+                      {/* Paragraph / Chunk buttons: clicking jumps directly into that paragraph */}
+                      {parasArr.map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => openDocumentViewer(doc.fullSource, p, parasArr)}
+                          className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-[#1c1836] hover:bg-purple-800 text-purple-300 hover:text-white border border-purple-800/60 hover:border-purple-400 font-semibold transition cursor-pointer flex items-center gap-1 shadow-sm"
+                          title={`Clicca per visualizzare ed evidenziare Paragrafo ${p}`}
+                        >
+                          <Eye className="w-2.5 h-2.5 text-purple-400" />
+                          <span>Paragrafo {p}</span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -651,6 +817,15 @@ export const SearchView: React.FC<SearchViewProps> = ({
 
                     <div className="flex items-center gap-2">
                       {getScoreBadge(res.score)}
+                      <button
+                        type="button"
+                        onClick={() => openDocumentViewer(res.source, (res.chunkIndex ?? 0) + 1, [(res.chunkIndex ?? 0) + 1])}
+                        title="Apri nel documento intero e posizionati qui"
+                        className="p-1.5 rounded-lg text-purple-400 hover:text-white hover:bg-purple-900/40 border border-purple-800/40 hover:border-purple-600 transition flex items-center gap-1 text-xs"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Vedi nel testo</span>
+                      </button>
                       <button
                         onClick={() => copyToClipboard(res.id, res.text)}
                         title="Copia testo"
@@ -710,6 +885,175 @@ export const SearchView: React.FC<SearchViewProps> = ({
               </p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* In-App Document Reader Modal (Soluzione A) */}
+      {viewerState.isOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150">
+          <div className="bg-[#161b22] border border-[#30363d] rounded-2xl w-full max-w-4xl h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-4 border-b border-[#30363d] flex items-center justify-between gap-3 bg-[#0d1117]/80">
+              <div className="flex items-center gap-3 overflow-hidden">
+                <div className="p-2 bg-purple-600/20 border border-purple-500/40 rounded-xl text-purple-300 shrink-0">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div className="overflow-hidden">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-sm text-white truncate font-mono" title={viewerState.source}>
+                      {viewerState.fileName}
+                    </h3>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-950 text-purple-300 border border-purple-800 shrink-0">
+                      {viewerChunks.length} paragrafi
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 truncate">
+                    Collezione: <strong>{activeCollection}</strong> • Evidenziati i paragrafi usati dall'assistente AI
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={copyEntireDocument}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#21262d] hover:bg-[#30363d] text-gray-300 hover:text-white border border-[#30363d] transition"
+                  title="Copia l'intero testo estratto del documento"
+                >
+                  {copiedAllDoc ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-emerald-300">Tutto copiato!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copia intero testo</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewerState((prev) => ({ ...prev, isOpen: false }))}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-white bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] transition"
+                  title="Chiudi visualizzatore"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Quick jump pills bar if multiple paragraphs matched */}
+            {viewerState.matchedParagraphs.length > 0 && (
+              <div className="px-4 py-2 border-b border-[#30363d]/60 bg-[#12161f] flex items-center gap-2 flex-wrap text-xs">
+                <span className="text-gray-400 font-medium text-[11px] flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-purple-400" /> Punti salienti della risposta:
+                </span>
+                {viewerState.matchedParagraphs.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => {
+                      setViewerState((prev) => ({ ...prev, targetParagraph: p }));
+                      const el = document.getElementById(`doc-chunk-${p}`);
+                      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }}
+                    className={`px-2.5 py-0.5 rounded-md font-mono text-[11px] border transition cursor-pointer flex items-center gap-1 ${
+                      viewerState.targetParagraph === p
+                        ? 'bg-purple-600 text-white border-purple-400 font-bold shadow'
+                        : 'bg-purple-950/60 hover:bg-purple-900 text-purple-300 border-purple-800/60 font-medium'
+                    }`}
+                  >
+                    <span>Salta a Paragrafo {p}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Modal Scrollable Body */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+              {viewerLoading ? (
+                <div className="py-24 text-center space-y-3">
+                  <Loader2 className="w-8 h-8 animate-spin text-purple-400 mx-auto" />
+                  <p className="text-sm text-gray-400">Ricostruzione del documento da Qdrant in corso...</p>
+                </div>
+              ) : viewerChunks.length > 0 ? (
+                viewerChunks.map((chunk) => {
+                  const paraNum = chunk.chunkIndex + 1;
+                  const isTarget = viewerState.targetParagraph === paraNum;
+                  const isMatched = viewerState.matchedParagraphs.includes(paraNum);
+
+                  return (
+                    <div
+                      key={chunk.chunkIndex}
+                      id={`doc-chunk-${paraNum}`}
+                      className={`p-4 rounded-xl transition-all border ${
+                        isTarget
+                          ? 'bg-purple-950/40 border-purple-500 shadow-xl ring-2 ring-purple-500/60'
+                          : isMatched
+                          ? 'bg-purple-950/20 border-purple-800/70'
+                          : 'bg-[#0d1117] border-[#30363d]/60 text-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-xs pb-2.5 border-b border-[#30363d]/50 mb-3 flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded font-mono font-bold text-[11px] ${
+                            isTarget
+                              ? 'bg-purple-600 text-white'
+                              : isMatched
+                              ? 'bg-purple-900/80 text-purple-200'
+                              : 'bg-[#21262d] text-gray-400'
+                          }`}>
+                            Paragrafo {paraNum} di {viewerChunks.length}
+                          </span>
+
+                          {chunk.metadata?.page !== undefined && (
+                            <span className="text-[11px] text-gray-400 font-mono">
+                              Pagina {chunk.metadata.page}
+                            </span>
+                          )}
+
+                          {isMatched && (
+                            <span className="text-amber-300 font-semibold flex items-center gap-1 text-[11px] bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800/40">
+                              ⭐ Risposta trovata qui
+                            </span>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => copyChunkText(chunk.chunkIndex, chunk.text)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#161b22] hover:bg-[#21262d] text-gray-300 hover:text-white border border-[#30363d] text-[11px] transition shadow-sm"
+                          title="Copia questo testo per cercarlo in Word o Acrobat (Ctrl+F)"
+                        >
+                          {copiedViewerIdx === chunk.chunkIndex ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-400" />
+                              <span className="text-emerald-300 font-medium">Copiato!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              <span>Copia per Word / Acrobat (Ctrl+F)</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      <div className="whitespace-pre-wrap leading-relaxed font-sans text-sm text-gray-200 selection:bg-purple-600 selection:text-white">
+                        {chunk.text}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="py-20 text-center text-gray-400">
+                  Nessun paragrafo trovato per questo documento nella collezione.
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

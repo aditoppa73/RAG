@@ -153,6 +153,63 @@ export class QdrantService {
     );
   }
 
+  async getDocumentChunks(collectionName: string, sourceName: string) {
+    await this.ensureCollection(collectionName);
+    const cleanBase = sourceName.split('/').pop()?.split('\\').pop() || sourceName;
+
+    const allChunks: Array<{
+      id: string;
+      chunkIndex: number;
+      totalChunks?: number;
+      text: string;
+      source: string;
+      metadata?: Record<string, any>;
+    }> = [];
+
+    let offset: any = undefined;
+    while (true) {
+      const scrollRes = await this.client.scroll(collectionName, {
+        limit: 250,
+        offset,
+        with_payload: true,
+        with_vector: false
+      });
+
+      for (const point of scrollRes.points || []) {
+        const payload = point.payload as any;
+        const ptSource = payload?.source || payload?.metadata?.source || '';
+        const ptBase = ptSource.split('/').pop()?.split('\\').pop() || ptSource;
+
+        if (ptSource === sourceName || ptBase === cleanBase) {
+          allChunks.push({
+            id: String(point.id),
+            chunkIndex: payload?.chunkIndex ?? 0,
+            totalChunks: payload?.totalChunks,
+            text: payload?.text || payload?.page_content || '',
+            source: ptSource,
+            metadata: payload?.metadata
+          });
+        }
+      }
+
+      if (!scrollRes.next_page_offset || (scrollRes.points && scrollRes.points.length === 0)) {
+        break;
+      }
+      offset = scrollRes.next_page_offset;
+      if (allChunks.length >= 2000) break;
+    }
+
+    // Deduplicate by chunkIndex in case of duplicate uploads / multiple paths
+    const uniqueChunksMap = new Map<number, typeof allChunks[0]>();
+    for (const c of allChunks) {
+      if (!uniqueChunksMap.has(c.chunkIndex)) {
+        uniqueChunksMap.set(c.chunkIndex, c);
+      }
+    }
+
+    return Array.from(uniqueChunksMap.values()).sort((a, b) => a.chunkIndex - b.chunkIndex);
+  }
+
   async deleteBySource(collectionName: string, sourceName: string) {
     await this.client.delete(collectionName, {
       filter: {

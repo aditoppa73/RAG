@@ -114,6 +114,24 @@ app.get('/api/collections/:name/documents', async (req, res) => {
   }
 });
 
+// Ottieni tutti i chunk ordinati di un documento (per il lettore integrato In-App)
+app.get('/api/collections/:name/documents/:source/chunks', async (req, res) => {
+  try {
+    const { name, source } = req.params;
+    if (!name || !source) return res.status(400).json({ error: 'Parametri mancanti' });
+    const decodedSource = decodeURIComponent(source);
+    const chunks = await qdrant.getDocumentChunks(name, decodedSource);
+    res.json({
+      collection: name,
+      source: decodedSource,
+      totalChunks: chunks.length,
+      chunks
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Elimina singolo documento da una collezione
 app.delete('/api/collections/:name/documents/:source', async (req, res) => {
   try {
@@ -484,7 +502,8 @@ app.post('/api/rag/ask', async (req, res) => {
         source: f.source,
         text: f.text,
         score: f.score,
-        chunkIndex: f.chunkIndex
+        chunkIndex: f.chunkIndex,
+        metadata: f.metadata
       })),
       model
     });

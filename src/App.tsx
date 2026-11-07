@@ -31,7 +31,9 @@ export function App() {
   const [status, setStatus] = useState({
     ollamaOk: false,
     qdrantOk: false,
-    modelName: 'nomic-embed-text'
+    modelName: 'google/embeddinggemma-2',
+    llmModel: 'gemma2:2b',
+    llmOk: false
   });
 
   const fetchStatus = async () => {
@@ -42,7 +44,9 @@ export function App() {
         setStatus({
           ollamaOk: data.ollama?.ok || false,
           qdrantOk: data.qdrant?.ok || false,
-          modelName: data.ollama?.currentModel || 'nomic-embed-text'
+          modelName: data.ollama?.embedModel || 'google/embeddinggemma-2',
+          llmModel: data.ollama?.currentModel || 'gemma2:2b',
+          llmOk: data.ollama?.ollamaAvailable || false
         });
         if (data.qdrant?.collections && data.qdrant.collections.length > 0) {
           setCollections(data.qdrant.collections);

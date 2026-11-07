@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, Cpu, Network, Search, UploadCloud, RefreshCw } from 'lucide-react';
+import { Database, Cpu, Network, Search, UploadCloud, RefreshCw, Bot } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: 'ingest' | 'search' | 'graph';
@@ -11,6 +11,8 @@ interface NavbarProps {
     ollamaOk: boolean;
     qdrantOk: boolean;
     modelName: string;
+    llmModel?: string;
+    llmOk?: boolean;
   };
   onRefreshStatus: () => void;
 }
@@ -100,25 +102,40 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           <div className="flex items-center gap-2 border-l border-[#30363d] pl-4">
+            {/* 1. Embedding Model (GPU) */}
             <div
-              className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-mono border ${
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-mono border transition ${
                 status.ollamaOk
                   ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/50'
                   : 'bg-rose-950/40 text-rose-400 border-rose-800/50'
               }`}
-              title={`Embedding Model: ${status.modelName}`}
+              title={`Embedding Model: ${status.modelName} (GPU)`}
             >
               <Cpu className="w-3.5 h-3.5" />
-              <span>Gemma 2: {status.ollamaOk ? 'GPU' : 'OFF'}</span>
+              <span>Embedding: {status.ollamaOk ? 'GPU' : 'OFF'}</span>
             </div>
 
+            {/* 2. Generative LLM Model */}
             <div
-              className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-mono border ${
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-mono border transition ${
+                status.llmOk
+                  ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/50'
+                  : 'bg-rose-950/40 text-rose-400 border-rose-800/50'
+              }`}
+              title={`Modello Generativo LLM: ${status.llmModel || 'gemma2:2b'} (${status.llmOk ? 'ONLINE' : 'DOWN'})`}
+            >
+              <Bot className="w-3.5 h-3.5" />
+              <span>LLM: {status.llmOk ? (status.llmModel || 'ON') : 'OFF'}</span>
+            </div>
+
+            {/* 3. Qdrant Vector DB */}
+            <div
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-mono border transition ${
                 status.qdrantOk
                   ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/50'
                   : 'bg-rose-950/40 text-rose-400 border-rose-800/50'
               }`}
-              title="Qdrant Vector DB"
+              title={`Qdrant Vector DB (GPU): ${status.qdrantOk ? 'ONLINE' : 'DOWN'}`}
             >
               <Database className="w-3.5 h-3.5" />
               <span>Qdrant: {status.qdrantOk ? 'ON' : 'OFF'}</span>
@@ -126,7 +143,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={onRefreshStatus}
-              title="Aggiorna stato"
+              title="Aggiorna stato processi"
               className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-[#30363d] transition"
             >
               <RefreshCw className="w-3.5 h-3.5" />

@@ -9,6 +9,7 @@ export interface OllamaHealth {
   ok: boolean;
   models: string[];
   currentModel: string;
+  embedModel?: string;
   ollamaAvailable: boolean;
 }
 
@@ -17,6 +18,7 @@ export interface RagContextChunk {
   text: string;
   score: number;
   chunkIndex?: number;
+  metadata?: Record<string, any>;
 }
 
 export interface GenerateAnswerParams {
@@ -39,11 +41,18 @@ export const ollama = {
       if (res.ok) {
         const data = await res.json() as { models?: Array<{ name: string }> };
         const modelNames = (data.models || []).map(m => m.name);
+        const genModels = modelNames.filter(m => !m.includes('embed'));
+        const activeLlm = genModels.find(m => m.startsWith('gemma2:2b')) ||
+                          genModels.find(m => m.startsWith('qwen2.5')) ||
+                          genModels[0] ||
+                          DEFAULT_LLM_MODEL;
+
         return {
           ok: embedHealth.ok,
           ollamaAvailable: true,
+          embedModel: embedHealth.model || 'google/embeddinggemma-2',
           models: modelNames.length > 0 ? modelNames : [DEFAULT_LLM_MODEL],
-          currentModel: modelNames.includes(DEFAULT_LLM_MODEL) ? DEFAULT_LLM_MODEL : (modelNames[0] || DEFAULT_LLM_MODEL)
+          currentModel: activeLlm
         };
       }
     } catch {}
@@ -51,8 +60,9 @@ export const ollama = {
     return {
       ok: embedHealth.ok,
       ollamaAvailable: false,
-      models: [embedHealth.model],
-      currentModel: embedHealth.model
+      embedModel: embedHealth.model,
+      models: [DEFAULT_LLM_MODEL],
+      currentModel: DEFAULT_LLM_MODEL
     };
   },
 
@@ -94,19 +104,44 @@ export const ollama = {
       };
     }
 
-    const contextBlock = contexts.map((c, i) => {
-      const similarityPercent = Math.round(c.score * 100);
+    // Group context chunks by unique document
+    const chunksByDoc = new Map<string, Array<{ text: string; score: number; chunkIndex?: number; page?: number | string }>>();
+    contexts.forEach((c) => {
       const fileName = path.basename(c.source);
-      return `[DOCUMENTO: ${fileName} | Rilevanza: ${similarityPercent}%]\n${c.text.trim()}`;
-    }).join('\n\n--------------------\n\n');
+      if (!chunksByDoc.has(fileName)) {
+        chunksByDoc.set(fileName, []);
+      }
+      chunksByDoc.get(fileName)!.push({
+        text: c.text.trim(),
+        score: c.score,
+        chunkIndex: c.chunkIndex,
+        page: c.metadata?.page
+      });
+    });
+
+    const contextBlocksList: string[] = [];
+    chunksByDoc.forEach((chunks, fileName) => {
+      const textJoined = chunks.map((ch, idx) => {
+        const paraLabel = ch.chunkIndex !== undefined ? ` [Paragrafo ${ch.chunkIndex + 1}]` : '';
+        const pageLabel = ch.page ? ` [Pag. ${ch.page}]` : '';
+        return `--- Estratto ${idx + 1}${paraLabel}${pageLabel} ---\n${ch.text}`;
+      }).join('\n\n');
+
+      contextBlocksList.push(`=== Documento consultato: ${fileName} ===\n${textJoined}`);
+    });
+
+    const contextBlock = contextBlocksList.join('\n\n====================\n\n');
 
     const prompt = `Sei un assistente RAG esperto e analitico. Il tuo compito è rispondere alla domanda dell'utente basandoti ESCLUSIVAMENTE sui contesti documentali estratti da Qdrant riportati di seguito.
 
-REGOLE FONDAMENTALI:
-1. Rispondi in italiano con tono chiaro, professionale e ben strutturato (usa elenchi puntati o tabelle se opportuno).
-2. Usa SOLTANTO le informazioni presenti nei contesti forniti. NON inventare o estrapolare nulla che non sia verificabile.
-3. Se i contesti non contengono informazioni sufficienti a rispondere alla domanda, dichiara chiaramente che i documenti indicizzati non contengono tale dato.
-4. Quando citi una regola, un articolo o un requisito, indica SEMPRE il nome esatto del documento tra parentesi quadre (es. [nome_file]). Non usare MAI etichette anonime come "FONTE 1" o segnaposto generici.
+REGOLE FONDAMENTALI DI STRUTTURA:
+1. Se le informazioni provengono da uno o più documenti, DEVI suddividere chiaramente la risposta per ciascun documento consultato, inserendo per ognuno l'intestazione esatta:
+# Documento consultato: [nome_del_file]
+2. Sotto ciascuna intestazione "# Documento consultato: ...", elenca con punti elenco le regole e i concetti tratti da quel file, evidenziando in grassetto il punto chiave, esattamente come in questo esempio:
+* **Concetto o Requisito chiave**: spiegazione dettagliata tratta dal documento...
+3. Usa SOLTANTO le informazioni presenti nei contesti forniti. NON inventare o estrapolare nulla che non sia verificabile.
+4. Se i contesti non contengono informazioni sufficienti a rispondere alla domanda, dichiara chiaramente che i documenti non contengono tale dato.
+5. Non usare MAI etichette generiche come "FONTE 1" o segnaposto generici: usa SEMPRE il nome reale del file.
 
 CONTESTI ESTRATTI DALLA BASE DI CONOSCENZA:
 ==============================
@@ -122,7 +157,12 @@ RISPOSTA:`;
     const formatAndAttachSources = (text: string): string => {
       let resolved = text;
 
-      // 1. If LLM produced dummy template lines, remove them
+      // 1. Standardize document headers to '# Documento consultato: nome_file'
+      resolved = resolved
+        .replace(/^#+\s*DOCUMENTO(?:\s+DI\s+ORIGINE)?:\s*/gmi, '# Documento consultato: ')
+        .replace(/^#+\s*Documento(?:\s+di\s+origine)?:\s*/gmi, '# Documento consultato: ');
+
+      // 2. If LLM produced dummy template lines, remove them
       resolved = resolved
         .replace(/\n*\*{0,2}Fonti consultate:\*{0,2}\s*\n-\s*\[?nome_file(\.pdf)?\]?/gi, '')
         .replace(/\n*\*{0,2}Riassunto:\*{0,2}\s*$/gi, '')
@@ -135,10 +175,39 @@ RISPOSTA:`;
         resolved = resolved.replace(regex, `[${fileName}]`);
       });
 
-      // 3. Extract unique source filenames
-      const uniqueSources = Array.from(new Set(contexts.map(c => path.basename(c.source))));
-      const sourcesFooter = `\n\n---\n**📄 Documenti consultati:**\n` + 
-        uniqueSources.map(s => `- \`${s}\``).join('\n');
+      // 3. Group by clean file name and collect page/paragraph info (each file only once)
+      const groupedSources = new Map<string, { pages: Set<number | string>; paragraphs: Set<number> }>();
+
+      contexts.forEach(c => {
+        const fileName = path.basename(c.source);
+        if (!groupedSources.has(fileName)) {
+          groupedSources.set(fileName, { pages: new Set(), paragraphs: new Set() });
+        }
+        const group = groupedSources.get(fileName)!;
+        if (c.metadata?.page !== undefined && c.metadata?.page !== null) {
+          group.pages.add(c.metadata.page);
+        }
+        if (c.chunkIndex !== undefined && c.chunkIndex !== null) {
+          group.paragraphs.add(c.chunkIndex + 1);
+        }
+      });
+
+      const sourcesListLines: string[] = [];
+      groupedSources.forEach((info, fileName) => {
+        const details: string[] = [];
+        if (info.pages.size > 0) {
+          const sortedPages = Array.from(info.pages).sort((a, b) => Number(a) - Number(b));
+          details.push(sortedPages.length === 1 ? `Pag. ${sortedPages[0]}` : `Pagg. ${sortedPages.join(', ')}`);
+        }
+        if (info.paragraphs.size > 0) {
+          const sortedParas = Array.from(info.paragraphs).sort((a, b) => a - b);
+          details.push(sortedParas.length === 1 ? `Paragrafo ${sortedParas[0]}` : `Paragrafi ${sortedParas.join(', ')}`);
+        }
+        const detailsStr = details.length > 0 ? ` (${details.join(' | ')})` : '';
+        sourcesListLines.push(`- \`${fileName}\`${detailsStr}`);
+      });
+
+      const sourcesFooter = `\n\n---\n**📄 Documenti consultati:**\n` + sourcesListLines.join('\n');
 
       return `${resolved}${sourcesFooter}`;
     };

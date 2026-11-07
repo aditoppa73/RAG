@@ -77,9 +77,8 @@ graph TD
 docker compose up -d
 ```
 Questo comando avvierà i container:
-- **`rag-qdrant`**: database vettoriale su `http://localhost:6333`
-- **`rag-ollama`**: runtime LLM/Embedding su `http://localhost:11434` (accelerato su GPU)
-- **`rag-ollama-model-init`**: container di bootstrap che assicura la disponibilità dei modelli LLM (`gemma2:2b`) ed Embedding (`embeddinggemma`) persistiti in `./ollama_storage`.
+- **`rag-qdrant`**: database vettoriale accelerato su GPU (`http://localhost:6333`)
+- **`rag-ollama`**: runtime LLM Ollama accelerato su GPU (`http://localhost:11434`) con modelli persistiti nella cartella di progetto `./ollama_storage`.
 
 ### 2. Configura l'Ambiente Python
 ```bash

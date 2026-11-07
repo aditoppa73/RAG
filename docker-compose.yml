@@ -38,18 +38,3 @@ services:
               count: all
               capabilities: [gpu]
     restart: unless-stopped
-
-  ollama-model-init:
-    image: ollama/ollama:latest
-    container_name: rag-ollama-model-init
-    depends_on:
-      - ollama
-    entrypoint: >
-      sh -c "
-        echo 'Attesa avvio servizio Ollama containerizzato...'
-        until OLLAMA_HOST=ollama:11434 ollama list > /dev/null 2>&1; do sleep 1; done
-        echo 'Verifica modello LLM (gemma2:2b)...'
-        OLLAMA_HOST=ollama:11434 ollama pull gemma2:2b
-        echo 'Modelli pronti e persistiti in ./ollama_storage.'
-      "
-    restart: "no"

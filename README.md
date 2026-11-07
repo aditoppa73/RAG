@@ -11,7 +11,7 @@ Una piattaforma enterprise autonoma, **100% on-premise** e privacy-first per:
 1. **Ingestion Documentale Ricorsiva & Multi-Formato**: PDF, DOCX/DOC, fogli Excel (.xlsx e .xls legacy con IBM Docling e fallback Pandas), presentazioni PPTX, immagini e registrazioni audio.
 2. **Embedding Semantico Accelerato su GPU**: Microservizio locale con Google `EmbeddingGemma-2` (768 dimensioni) su CUDA (NVIDIA).
 3. **Database Vettoriale Qdrant**: Storage e ricerca vettoriale HNSW su Docker con metadati strutturati e filtri per collezione.
-4. **Ricerca Semantica & Sintesi RAG con LLM (Gemma 2)**: Query in linguaggio naturale con embedding GPU su Qdrant e sintesi documentale automatica con LLM locale (Google Gemma 2 / Qwen 2.5 via Ollama) con vincolo anti-allucinazione e citazione delle fonti.
+4. **Ricerca Semantica & Sintesi RAG con LLM (Gemma 2)**: Query in linguaggio naturale con embedding GPU su Qdrant, sintesi documentale strutturata per documento (`# Documento consultato: [file]`), visualizzatore documenti integrato con auto-scroll ed evidenziazione al paragrafo esatto, e interfaccia multilinea non-bloccante.
 5. **Obsidian-Style Knowledge Graph Studio**: Grafo interattivo 2D/3D con calcolo in tempo reale delle correlazioni semantiche per cosine similarity tra documenti e chunk vettoriali.
 
 ---
@@ -57,6 +57,14 @@ graph TD
 
 - **Scansione Ricorsiva Intelligente**: Naviga nelle cartelle del computer tramite il file explorer integrato (senza popup nativi del browser) e carica automaticamente tutti i file inclusi nelle sottocartelle preservando la struttura relativa.
 - **Parsing Ibrido Robusto**: Estrazione avanzata con IBM Docling integrato con supporto a tabelle complesse e fallback automatico Pandas per fogli Excel `.xls`/`.xlsx`.
+- **RAG Studio & Assistente Generativo AI**:
+  - **Sintesi Strutturata per Documento**: l'LLM raggruppa le risposte per ciascun file consultato con intestazioni `# Documento consultato: [nome_file]` e concetti chiave evidenziati in grassetto.
+  - **Separazione Modalità di Ricerca**: *"Rispondi con AI"* mostra esclusivamente la risposta sintetica pulita; *"Solo Frammenti"* mostra le card dettagliate di tutti i chunk vettoriali.
+  - **Visualizzatore Documenti Integrato (In-App Reader)**: apertura con un click del testo integrale del documento da Qdrant, auto-scroll al paragrafo esatto, evidenziazione `⭐ Risposta trovata qui` e pulsante di copia rapida per Word/Acrobat (<kbd>Ctrl + F</kbd>).
+  - **Area Domanda Ergonomica**: campo `<textarea>` multilinea (<kbd>Shift + Invio</kbd>) con pulsanti posizionati nella barra inferiore per non sovrapporsi mai al testo.
+  - **Deduplicazione Fonti Consultate**: visualizzazione dei soli file distinti con indicazione di pagine e numeri di paragrafo/chunk.
+- **Barra di Stato Processi Unificata (Navbar)**:
+  - 🟢 **Verde** (Online) / 🔴 **Rosso** (Down) per tutti e tre i motori: `Embedding: GPU` (EmbeddingGemma-2), `LLM: gemma2:2b` (Ollama), `Qdrant: ON` (Database vettoriale con GPU).
 - **Nessuna Fuga di Dati (Zero Cloud Leakage)**: Nessun dato lascia la macchina locale. Massima conformità GDPR per documenti sensibili e bilanci.
 - **Grafo di Conoscenza Dinamico**: Navigazione visuale con comandi rapidi (Zoom In, Zoom Out, Fit-to-screen) e clustering cromatico basato sulla similarità coseno.
 

@@ -31,13 +31,29 @@ if device == "cuda":
 _model = None
 _docling_converter = None
 
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 def get_model():
     global _model
     if _model is None:
-        print("[EmbeddingGemma-2] Loading google/embeddinggemma-2 on GPU...")
+        print("[EmbeddingGemma-2] Loading google/embeddinggemma-2...")
         from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer("google/embeddinggemma-2", device=device)
-        print("[EmbeddingGemma-2] Model initialized and ready.")
+        try:
+            if device == "cuda":
+                print("[EmbeddingGemma-2] Loading on GPU with float16 precision...")
+                _model = SentenceTransformer(
+                    "google/embeddinggemma-2",
+                    device="cuda",
+                    model_kwargs={"torch_dtype": torch.float16}
+                )
+                print("[EmbeddingGemma-2] Model initialized on GPU (float16).")
+            else:
+                _model = SentenceTransformer("google/embeddinggemma-2", device="cpu")
+                print("[EmbeddingGemma-2] Model initialized on CPU.")
+        except Exception as cuda_err:
+            print(f"[EmbeddingGemma-2] GPU initialization failed ({cuda_err}), falling back to CPU...")
+            _model = SentenceTransformer("google/embeddinggemma-2", device="cpu")
+            print("[EmbeddingGemma-2] Model initialized on CPU (fallback).")
     return _model
 
 def get_docling():
@@ -169,7 +185,15 @@ def embed_text(req: TextEmbedRequest):
     if not req.texts:
         return {"embeddings": [], "dimensions": 768}
     model = get_model()
-    embeddings = model.encode(req.texts, batch_size=16, convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=False)
+    try:
+        embeddings = model.encode(req.texts, batch_size=16, convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=False)
+    except Exception as enc_err:
+        print(f"[Embedding Error] Text batch encode retry on CPU: {enc_err}")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        from sentence_transformers import SentenceTransformer
+        cpu_model = SentenceTransformer("google/embeddinggemma-2", device="cpu")
+        embeddings = cpu_model.encode(req.texts, batch_size=8, convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=False)
     return {
         "embeddings": embeddings.tolist(),
         "count": len(req.texts),
@@ -182,7 +206,15 @@ def embed_query(req: QueryEmbedRequest):
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     model = get_model()
     query_text = req.query.strip()
-    embedding = model.encode([query_text], convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=False)[0]
+    try:
+        embedding = model.encode([query_text], convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=False)[0]
+    except Exception as enc_err:
+        print(f"[Embedding Error] Query encode retry on CPU: {enc_err}")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        from sentence_transformers import SentenceTransformer
+        cpu_model = SentenceTransformer("google/embeddinggemma-2", device="cpu")
+        embedding = cpu_model.encode([query_text], convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=False)[0]
     return {
         "embedding": embedding.tolist(),
         "dimensions": len(embedding)
@@ -232,4 +264,4 @@ async def embed_audio(file: UploadFile = File(...)):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=5002)
+    uvicorn.run(app, host="0.0.0.0", port=5002)

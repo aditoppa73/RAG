@@ -247,6 +247,14 @@ RISPOSTA:`;
         }
 
         return parsed.response ? parsed.response.trim() : '';
+      } catch (genErr: any) {
+        // If CUDA OOM or unable to allocate buffer, automatically retry on CPU (num_gpu: 0)
+        const msg = String(genErr?.message || genErr);
+        if ((msg.includes('out of memory') || msg.includes('unable to allocate CUDA') || msg.includes('cudaMalloc')) && options?.num_gpu === undefined) {
+          console.warn(`[Ollama GPU Memory Limit] Retrying ${targetModel} on CPU (num_gpu: 0)...`);
+          return sendGenerateRequest(targetModel, { ...options, num_gpu: 0 });
+        }
+        throw genErr;
       } finally {
         clearTimeout(timeoutId);
       }

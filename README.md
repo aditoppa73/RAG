@@ -78,36 +78,40 @@ graph TD
 
 ---
 
-## ⚡ Avvio Rapido
+## ⚡ Avvio Rapido 100% in Container (Zero Configurazione Locale)
 
-### 1. Avvia i Servizi Docker (Qdrant + Ollama con Modelli)
+Non è più necessario eseguire comandi manuali come `npm run dev` o configurare ambienti virtuali: l'intero stack (Frontend React, API Express, Microservizio AI Python con Docling/EmbeddingGemma-2, Qdrant e Ollama) viene avviato all'interno di container Docker coordinati.
+
 ```bash
 docker compose up -d
 ```
-Questo comando avvierà i container:
-- **`rag-qdrant`**: database vettoriale accelerato su GPU (`http://localhost:6333`)
-- **`rag-ollama`**: runtime LLM Ollama accelerato su GPU (`http://localhost:11434`) con modelli persistiti nella cartella di progetto `./ollama_storage`.
 
-### 2. Configura l'Ambiente Python
+Questo singolo comando avvierà tutti i servizi:
+- **`rag-studio`**: Frontend Web React + API Express (`http://localhost:5173` o `http://localhost:3001`) e Microservizio Python Embedding (`http://localhost:5002`)
+- **`rag-qdrant`**: database vettoriale accelerato (`http://localhost:6333`)
+- **`rag-ollama`**: runtime LLM Ollama (`http://localhost:11434`) con modelli persistiti nella cartella di progetto `./ollama_storage`
+
+Apri semplicemente il browser su **`http://localhost:5173`** o **`http://localhost:3001`**.
+
+---
+
+### Sviluppo Locale (Opzionale)
+
+Se desideri apportare modifiche al codice sorgente in modalità hot-reload senza container:
+
 ```bash
-# Crea virtual environment
+# 1. Avvia solo Qdrant e Ollama in background
+docker compose up -d qdrant ollama
+
+# 2. Configura il venv Python (solo prima volta)
 python -m venv .venv
-source .venv/bin/activate # su Windows: .\.venv\Scripts\Activate.ps1
-
-# Installa le dipendenze
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-```
 
-### 3. Installa le Dipendenze Node e Avvia la Piattaforma
-```bash
+# 3. Avvia lo stack dev locale
 npm install
 npm run dev
 ```
-
-Il comando `npm run dev` avvierà simultaneamente:
-- **Python Service (EmbeddingGemma-2 + Docling)** su `http://localhost:5002`
-- **Express API Gateway** su `http://localhost:3001`
-- **Vite React Frontend** su `http://localhost:5173`
 
 ---
 

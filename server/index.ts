@@ -3,6 +3,7 @@ import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import os from 'os';
 import { fileURLToPath } from 'url';
 import { ollama } from './services/ollama';
@@ -548,6 +549,18 @@ app.delete('/api/documents', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`[RAG Server] Running on http://localhost:${PORT}`);
+// Serve Frontend in Production / Container
+const distPath = path.resolve(__dirname, '../dist');
+if (fsSync.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api')) {
+      return res.sendFile(path.join(distPath, 'index.html'));
+    }
+    next();
+  });
+}
+
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`[RAG Server] Running on http://0.0.0.0:${PORT}`);
 });

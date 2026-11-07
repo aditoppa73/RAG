@@ -30,6 +30,7 @@ services:
     environment:
       - OLLAMA_KEEP_ALIVE=24h
       - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_HOST=0.0.0.0:11434
     deploy:
       resources:
         reservations:
@@ -37,4 +38,26 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    restart: unless-stopped
+
+  rag-studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-studio
+    ports:
+      - "3001:3001"
+      - "5173:3001"
+      - "5002:5002"
+    environment:
+      - PORT=3001
+      - EMBEDDING_SERVICE_URL=http://127.0.0.1:5002
+      - OLLAMA_URL=http://ollama:11434
+      - QDRANT_URL=http://qdrant:6333
+      - DEFAULT_LLM_MODEL=gemma2:2b
+    depends_on:
+      - qdrant
+      - ollama
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
     restart: unless-stopped

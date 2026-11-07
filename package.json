@@ -6,13 +6,17 @@
   "scripts": {
     "dev": "concurrently -n \"EMBED,API,VITE\" -c \"green,blue,magenta\" \"npm run python\" \"npm run server\" \"npm run client\"",
     "python": ".\\.venv\\Scripts\\python python_service/app.py",
+    "python:linux": "python3 python_service/app.py",
     "server": "tsx watch --watch server server/index.ts",
+    "server:prod": "tsx server/index.ts",
     "client": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "start": "concurrently -n \"EMBED,API\" -c \"green,blue\" \"npm run python:linux\" \"npm run server:prod\""
   },
   "dependencies": {
     "@qdrant/js-client-rest": "^1.20.0",
     "clsx": "^2.1.1",
+    "concurrently": "^10.0.6",
     "cors": "^2.8.6",
     "d3-force-3d": "^3.0.6",
     "dotenv": "^18.0.9",
@@ -26,6 +30,7 @@
     "react-dom": "^19.3.1",
     "react-force-graph-2d": "^1.29.2",
     "tailwind-merge": "^3.7.0",
+    "tsx": "^4.23.15",
     "word-extractor": "^1.0.4"
   },
   "devDependencies": {
@@ -37,10 +42,8 @@
     "@types/pdf-parse": "^1.1.5",
     "@vitejs/plugin-react": "^6.1.2",
     "autoprefixer": "^10.6.2",
-    "concurrently": "^10.0.6",
     "postcss": "^8.5.32",
     "tailwindcss": "^4.3.3",
-    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.5"
   }

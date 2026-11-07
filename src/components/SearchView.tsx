@@ -56,14 +56,15 @@ export const SearchView: React.FC<SearchViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searched, setSearched] = useState(false);
+  const [searchMode, setSearchMode] = useState<'ai' | 'chunks' | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Generative RAG AI states
   const [isAiGenerating, setIsAiGenerating] = useState(false);
   const [aiAnswer, setAiAnswer] = useState<string | null>(null);
   const [modelUsed, setModelUsed] = useState<string | null>(null);
-  const [availableModels, setAvailableModels] = useState<string[]>(['gemma2:9b', 'qwen2.5:latest']);
-  const [selectedModel, setSelectedModel] = useState<string>('gemma2:9b');
+  const [availableModels, setAvailableModels] = useState<string[]>(['gemma2:2b', 'qwen2.5:latest']);
+  const [selectedModel, setSelectedModel] = useState<string>('gemma2:2b');
   const [copiedAiAnswer, setCopiedAiAnswer] = useState(false);
 
   // Active Collection Metadata & Document List
@@ -135,6 +136,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
 
     setLoading(true);
     setSearched(true);
+    setSearchMode('chunks');
     setAiAnswer(null);
     setModelUsed(null);
 
@@ -167,6 +169,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
 
     setIsAiGenerating(true);
     setSearched(true);
+    setSearchMode('ai');
     setAiAnswer(null);
 
     try {
@@ -580,113 +583,115 @@ export const SearchView: React.FC<SearchViewProps> = ({
         </div>
       )}
 
-      {/* Results Section (Document Chunks) */}
-      <div className="space-y-4">
-        {searched && (
-          <div className="flex items-center justify-between px-2 text-xs text-gray-400">
-            <span>
-              {aiAnswer ? 'Fonti documentali consultate da Qdrant:' : `Trovati ${results.length} frammenti pertinenti per "${query}":`}
-            </span>
-            <span className="text-gray-500 font-mono">
-              {results.length} frammenti
-            </span>
-          </div>
-        )}
+      {/* Results Section (Document Chunks) - Mostrato solo in modalità "Solo Frammenti" */}
+      {searchMode === 'chunks' && (
+        <div className="space-y-4">
+          {searched && (
+            <div className="flex items-center justify-between px-2 text-xs text-gray-400">
+              <span>
+                Trovati {results.length} frammenti pertinenti per "{query}":
+              </span>
+              <span className="text-gray-500 font-mono">
+                {results.length} frammenti
+              </span>
+            </div>
+          )}
 
-        {loading ? (
-          <div className="py-16 text-center space-y-3">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-500 mx-auto" />
-            <p className="text-sm text-gray-400">Generazione embedding ed estrazione da Qdrant in corso...</p>
-          </div>
-        ) : results.length > 0 ? (
-          <div className="space-y-3">
-            {results.map((res) => (
-              <div
-                key={res.id}
-                className="bg-[#161b22] border border-[#30363d] hover:border-purple-500/50 transition-all rounded-xl p-5 shadow-sm space-y-3 group"
-              >
-                {/* Header card */}
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-2">
-                    {/\.(png|jpe?g|webp|bmp)$/i.test(res.source) ? (
-                      <span className="text-base">🖼️</span>
-                    ) : /\.(mp3|wav|m4a|ogg)$/i.test(res.source) ? (
-                      <span className="text-base">🎙️</span>
-                    ) : (
-                      <FileText className="w-4 h-4 text-purple-400" />
-                    )}
-                    <span className="font-semibold text-sm text-white group-hover:text-purple-300 transition">
-                      {res.source}
-                    </span>
-                    {res.chunkIndex !== undefined && !/\.(png|jpe?g|webp|bmp|mp3|wav|m4a)$/i.test(res.source) && (
-                      <span className="text-xs text-gray-500">
-                        (chunk {res.chunkIndex + 1} di {res.totalChunks || '?'})
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {getScoreBadge(res.score)}
-                    <button
-                      onClick={() => copyToClipboard(res.id, res.text)}
-                      title="Copia testo"
-                      className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#30363d] transition"
-                    >
-                      {copiedId === res.id ? (
-                        <Check className="w-4 h-4 text-emerald-400" />
+          {loading ? (
+            <div className="py-16 text-center space-y-3">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-500 mx-auto" />
+              <p className="text-sm text-gray-400">Generazione embedding ed estrazione da Qdrant in corso...</p>
+            </div>
+          ) : results.length > 0 ? (
+            <div className="space-y-3">
+              {results.map((res) => (
+                <div
+                  key={res.id}
+                  className="bg-[#161b22] border border-[#30363d] hover:border-purple-500/50 transition-all rounded-xl p-5 shadow-sm space-y-3 group"
+                >
+                  {/* Header card */}
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-2">
+                      {/\.(png|jpe?g|webp|bmp)$/i.test(res.source) ? (
+                        <span className="text-base">🖼️</span>
+                      ) : /\.(mp3|wav|m4a|ogg)$/i.test(res.source) ? (
+                        <span className="text-base">🎙️</span>
                       ) : (
-                        <Copy className="w-4 h-4" />
+                        <FileText className="w-4 h-4 text-purple-400" />
                       )}
-                    </button>
-                    {onSelectResultForGraph && (
+                      <span className="font-semibold text-sm text-white group-hover:text-purple-300 transition">
+                        {res.source}
+                      </span>
+                      {res.chunkIndex !== undefined && !/\.(png|jpe?g|webp|bmp|mp3|wav|m4a)$/i.test(res.source) && (
+                        <span className="text-xs text-gray-500">
+                          (chunk {res.chunkIndex + 1} di {res.totalChunks || '?'})
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {getScoreBadge(res.score)}
                       <button
-                        onClick={() => onSelectResultForGraph(res.source)}
-                        title="Isola nel Grafo"
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-purple-300 hover:bg-[#30363d] transition"
+                        onClick={() => copyToClipboard(res.id, res.text)}
+                        title="Copia testo"
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#30363d] transition"
                       >
-                        <ArrowRight className="w-4 h-4" />
+                        {copiedId === res.id ? (
+                          <Check className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-4 h-4" />
+                        )}
                       </button>
-                    )}
+                      {onSelectResultForGraph && (
+                        <button
+                          onClick={() => onSelectResultForGraph(res.source)}
+                          title="Isola nel Grafo"
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-purple-300 hover:bg-[#30363d] transition"
+                        >
+                          <ArrowRight className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                {/* Content */}
-                <div className="bg-[#0d1117] p-3.5 rounded-lg border border-[#30363d]/60 text-sm text-gray-300 whitespace-pre-wrap leading-relaxed font-sans">
-                  {res.text}
-                </div>
-
-                {/* Metadata Pill Bar if available */}
-                {res.metadata && Object.keys(res.metadata).length > 0 && (
-                  <div className="flex flex-wrap gap-2 pt-1 text-[11px] text-gray-400">
-                    {res.metadata.author && (
-                      <span className="bg-[#0d1117] px-2 py-0.5 rounded border border-[#30363d]">
-                        Autore: {res.metadata.author}
-                      </span>
-                    )}
-                    {res.metadata.page !== undefined && (
-                      <span className="bg-[#0d1117] px-2 py-0.5 rounded border border-[#30363d]">
-                        Pagina: {res.metadata.page}
-                      </span>
-                    )}
-                    {res.metadata.title && (
-                      <span className="bg-[#0d1117] px-2 py-0.5 rounded border border-[#30363d]">
-                        Titolo: {res.metadata.title}
-                      </span>
-                    )}
+                  {/* Content */}
+                  <div className="bg-[#0d1117] p-3.5 rounded-lg border border-[#30363d]/60 text-sm text-gray-300 whitespace-pre-wrap leading-relaxed font-sans">
+                    {res.text}
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : searched && !isAiGenerating ? (
-          <div className="py-12 text-center bg-[#161b22] border border-[#30363d] rounded-2xl p-8 space-y-2">
-            <p className="text-gray-300 font-medium">Nessun risultato rilevante trovato</p>
-            <p className="text-xs text-gray-500">
-              Prova ad abbassare la soglia di similarità o a verificare che la collezione contenga documenti indicizzati.
-            </p>
-          </div>
-        ) : null}
-      </div>
+
+                  {/* Metadata Pill Bar if available */}
+                  {res.metadata && Object.keys(res.metadata).length > 0 && (
+                    <div className="flex flex-wrap gap-2 pt-1 text-[11px] text-gray-400">
+                      {res.metadata.author && (
+                        <span className="bg-[#0d1117] px-2 py-0.5 rounded border border-[#30363d]">
+                          Autore: {res.metadata.author}
+                        </span>
+                      )}
+                      {res.metadata.page !== undefined && (
+                        <span className="bg-[#0d1117] px-2 py-0.5 rounded border border-[#30363d]">
+                          Pagina: {res.metadata.page}
+                        </span>
+                      )}
+                      {res.metadata.title && (
+                        <span className="bg-[#0d1117] px-2 py-0.5 rounded border border-[#30363d]">
+                          Titolo: {res.metadata.title}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-12 text-center bg-[#161b22] border border-[#30363d] rounded-2xl p-8 space-y-2">
+              <p className="text-gray-300 font-medium">Nessun risultato rilevante trovato</p>
+              <p className="text-xs text-gray-500">
+                Prova ad abbassare la soglia di similarità o a verificare che la collezione contenga documenti indicizzati.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

@@ -580,6 +580,26 @@ export const SearchView: React.FC<SearchViewProps> = ({
           <div className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap font-sans bg-[#0d0c18] p-4 rounded-xl border border-purple-900/30">
             {aiAnswer}
           </div>
+
+          {/* Consulted Source Files Summary */}
+          {results.length > 0 && (
+            <div className="pt-3 border-t border-purple-900/40 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-purple-300 font-semibold flex items-center gap-1.5 mr-1">
+                <FileText className="w-3.5 h-3.5 text-purple-400" />
+                Documenti consultati:
+              </span>
+              {Array.from(new Set(results.map((r) => r.source))).map((src, idx) => (
+                <span
+                  key={idx}
+                  title={src}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono bg-[#0d0c18] text-purple-200 border border-purple-700/50 hover:border-purple-400 transition"
+                >
+                  <span className="text-purple-400 font-sans font-bold">📄</span>
+                  <span className="truncate max-w-xs">{src}</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

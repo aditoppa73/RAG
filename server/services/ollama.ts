@@ -1,3 +1,4 @@
+import path from 'path';
 import { embeddingService } from './embedding';
 
 const OLLAMA_HOST = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
@@ -95,16 +96,17 @@ export const ollama = {
 
     const contextBlock = contexts.map((c, i) => {
       const similarityPercent = Math.round(c.score * 100);
-      return `[FONTE ${i + 1}: ${c.source} | Rilevanza: ${similarityPercent}%]\n${c.text.trim()}`;
+      const fileName = path.basename(c.source);
+      return `[DOCUMENTO: ${fileName} | Rilevanza: ${similarityPercent}%]\n${c.text.trim()}`;
     }).join('\n\n--------------------\n\n');
 
     const prompt = `Sei un assistente RAG esperto e analitico. Il tuo compito è rispondere alla domanda dell'utente basandoti ESCLUSIVAMENTE sui contesti documentali estratti da Qdrant riportati di seguito.
 
 REGOLE FONDAMENTALI:
-1. Rispondi in italiano con tono chiaro, professionale e ben strutturato (usa elenchi puntati o sezioni se opportuno).
+1. Rispondi in italiano con tono chiaro, professionale e ben strutturato (usa elenchi puntati o tabelle se opportuno).
 2. Usa SOLTANTO le informazioni presenti nei contesti forniti. NON inventare o estrapolare nulla che non sia verificabile.
 3. Se i contesti non contengono informazioni sufficienti a rispondere alla domanda, dichiara chiaramente che i documenti indicizzati non contengono tale dato.
-4. Ogni volta che citi un dato o concetto, indica la fonte tra parentesi quadre (es. [nome_file.pdf]).
+4. Quando citi una regola, un articolo o un requisito, indica SEMPRE il nome esatto del documento tra parentesi quadre (es. [nome_file]). Non usare MAI etichette anonime come "FONTE 1" o segnaposto generici.
 
 CONTESTI ESTRATTI DALLA BASE DI CONOSCENZA:
 ==============================
@@ -115,6 +117,31 @@ DOMANDA DELL'UTENTE:
 ${query}
 
 RISPOSTA:`;
+
+    // Helper to resolve any residual [FONTE X] citations and clean up the response
+    const formatAndAttachSources = (text: string): string => {
+      let resolved = text;
+
+      // 1. If LLM produced dummy template lines, remove them
+      resolved = resolved
+        .replace(/\n*\*{0,2}Fonti consultate:\*{0,2}\s*\n-\s*\[?nome_file(\.pdf)?\]?/gi, '')
+        .replace(/\n*\*{0,2}Riassunto:\*{0,2}\s*$/gi, '')
+        .trim();
+
+      // 2. Replace any [FONTE 1], [FONTE 6], etc. with actual filenames
+      contexts.forEach((c, i) => {
+        const fileName = path.basename(c.source);
+        const regex = new RegExp(`\\[FONTE\\s*${i + 1}(?:\\s*:[^\\]]*)?\\]`, 'gi');
+        resolved = resolved.replace(regex, `[${fileName}]`);
+      });
+
+      // 3. Extract unique source filenames
+      const uniqueSources = Array.from(new Set(contexts.map(c => path.basename(c.source))));
+      const sourcesFooter = `\n\n---\n**📄 Documenti consultati:**\n` + 
+        uniqueSources.map(s => `- \`${s}\``).join('\n');
+
+      return `${resolved}${sourcesFooter}`;
+    };
 
     const sendGenerateRequest = async (targetModel: string, options?: Record<string, any>) => {
       const controller = new AbortController();
@@ -158,7 +185,8 @@ RISPOSTA:`;
 
     try {
       // 1. Try standard generation on target model
-      const answer = await sendGenerateRequest(chosenModel);
+      const rawAnswer = await sendGenerateRequest(chosenModel);
+      const answer = formatAndAttachSources(rawAnswer);
       return { answer, modelUsed: chosenModel };
     } catch (err: any) {
       const errMsg = String(err?.message || err);
@@ -175,7 +203,8 @@ RISPOSTA:`;
         try {
           // Wait 2.5s in case Ollama runner crashed and daemon is restarting
           await new Promise(resolve => setTimeout(resolve, 2500));
-          const fallbackAnswer = await sendGenerateRequest(fallback);
+          const rawFallback = await sendGenerateRequest(fallback);
+          const fallbackAnswer = formatAndAttachSources(rawFallback);
           return {
             answer: `${fallbackAnswer}\n\n*(Nota: Risposta elaborata automaticamente con **${fallback}** poiché **${chosenModel}** richiede più VRAM di quella disponibile sulla GPU.)*`,
             modelUsed: `${fallback} (failover da ${chosenModel})`

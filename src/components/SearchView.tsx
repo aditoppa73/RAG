@@ -84,13 +84,13 @@ export const SearchView: React.FC<SearchViewProps> = ({
           const finalList = genModels.length > 0 ? genModels : data.models;
           setAvailableModels(finalList);
 
-          // Priority: gemma2:9b -> other gemma2 -> qwen -> first
-          if (finalList.some((m: string) => m.startsWith('gemma2:9b'))) {
-            setSelectedModel(finalList.find((m: string) => m.startsWith('gemma2:9b')));
-          } else if (finalList.some((m: string) => m.startsWith('gemma2'))) {
-            setSelectedModel(finalList.find((m: string) => m.startsWith('gemma2')));
+          // Priority: gemma2:2b (fast & fits 6GB VRAM) -> qwen2.5 -> gemma2:9b -> first
+          if (finalList.some((m: string) => m.startsWith('gemma2:2b'))) {
+            setSelectedModel(finalList.find((m: string) => m.startsWith('gemma2:2b')));
           } else if (finalList.some((m: string) => m.startsWith('qwen2.5'))) {
             setSelectedModel(finalList.find((m: string) => m.startsWith('qwen2.5')));
+          } else if (finalList.some((m: string) => m.startsWith('gemma2:9b'))) {
+            setSelectedModel(finalList.find((m: string) => m.startsWith('gemma2:9b')));
           } else {
             setSelectedModel(finalList[0]);
           }
@@ -303,11 +303,20 @@ export const SearchView: React.FC<SearchViewProps> = ({
                   onChange={(e) => setSelectedModel(e.target.value)}
                   className="bg-transparent text-purple-300 font-mono text-xs focus:outline-none cursor-pointer"
                 >
-                  {availableModels.map((m) => (
-                    <option key={m} value={m} className="bg-[#161b22] text-gray-200">
-                      {m}
-                    </option>
-                  ))}
+                  {availableModels.map((m) => {
+                    const label = m === 'gemma2:2b'
+                      ? 'gemma2:2b (Consigliato GPU - Veloce)'
+                      : m === 'gemma2:9b'
+                      ? 'gemma2:9b (Richiede >8GB VRAM)'
+                      : m.includes('qwen2.5')
+                      ? `${m} (Leggero)`
+                      : m;
+                    return (
+                      <option key={m} value={m} className="bg-[#161b22] text-gray-200">
+                        {label}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 

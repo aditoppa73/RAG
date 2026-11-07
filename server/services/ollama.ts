@@ -1,7 +1,8 @@
 import { embeddingService } from './embedding';
 
-const OLLAMA_HOST = process.env.OLLAMA_URL || 'http://localhost:11434';
-const DEFAULT_LLM_MODEL = process.env.DEFAULT_LLM_MODEL || 'gemma2:9b';
+const OLLAMA_HOST = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
+const DEFAULT_LLM_MODEL = process.env.DEFAULT_LLM_MODEL || 'gemma2:2b';
+const KNOWN_LIGHT_MODELS = ['gemma2:2b', 'qwen2.5:3b', 'qwen2.5:latest'];
 
 export interface OllamaHealth {
   ok: boolean;
@@ -71,17 +72,15 @@ export const ollama = {
   async generateAnswer({ query, contexts, model }: GenerateAnswerParams): Promise<{ answer: string; modelUsed: string }> {
     const availableModels = await this.listModels();
     
-    // Choose model priority: requested model -> gemma2:9b -> gemma2:2b -> qwen2.5 -> first available
+    // Choose model priority: requested model -> gemma2:2b (safe for 6GB GPU) -> qwen2.5 -> gemma2:9b
     let chosenModel = model || DEFAULT_LLM_MODEL;
     if (!availableModels.includes(chosenModel)) {
-      if (availableModels.some(m => m.startsWith('gemma2:9b'))) {
-        chosenModel = availableModels.find(m => m.startsWith('gemma2:9b'))!;
-      } else if (availableModels.some(m => m.startsWith('gemma2:2b'))) {
+      if (availableModels.some(m => m.startsWith('gemma2:2b'))) {
         chosenModel = availableModels.find(m => m.startsWith('gemma2:2b'))!;
-      } else if (availableModels.some(m => m.startsWith('gemma2'))) {
-        chosenModel = availableModels.find(m => m.startsWith('gemma2'))!;
       } else if (availableModels.some(m => m.startsWith('qwen2.5'))) {
         chosenModel = availableModels.find(m => m.startsWith('qwen2.5'))!;
+      } else if (availableModels.some(m => m.startsWith('gemma2:9b'))) {
+        chosenModel = availableModels.find(m => m.startsWith('gemma2:9b'))!;
       } else if (availableModels.length > 0) {
         chosenModel = availableModels[0];
       }
@@ -118,35 +117,43 @@ ${query}
 RISPOSTA:`;
 
     const sendGenerateRequest = async (targetModel: string, options?: Record<string, any>) => {
-      const res = await fetch(`${OLLAMA_HOST}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: targetModel,
-          prompt,
-          stream: false,
-          options: {
-            temperature: 0.2,
-            top_p: 0.9,
-            num_predict: 1024,
-            ...options
-          }
-        })
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
 
-      const raw = await res.text();
-      let parsed: any;
       try {
-        parsed = JSON.parse(raw);
-      } catch {
-        throw new Error(`Risposta Ollama non valida (${res.status}): ${raw.slice(0, 200)}`);
-      }
+        const res = await fetch(`${OLLAMA_HOST}/api/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: targetModel,
+            prompt,
+            stream: false,
+            options: {
+              temperature: 0.2,
+              top_p: 0.9,
+              num_predict: 1024,
+              ...options
+            }
+          })
+        });
 
-      if (parsed.error) {
-        throw new Error(parsed.error);
-      }
+        const raw = await res.text();
+        let parsed: any;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          throw new Error(`Risposta non valida da Ollama (${res.status}): ${raw.slice(0, 200)}`);
+        }
 
-      return parsed.response ? parsed.response.trim() : '';
+        if (parsed.error) {
+          throw new Error(parsed.error);
+        }
+
+        return parsed.response ? parsed.response.trim() : '';
+      } finally {
+        clearTimeout(timeoutId);
+      }
     };
 
     try {
@@ -155,28 +162,32 @@ RISPOSTA:`;
       return { answer, modelUsed: chosenModel };
     } catch (err: any) {
       const errMsg = String(err?.message || err);
-      console.warn(`[Ollama Generation Warning with ${chosenModel}]`, errMsg);
+      console.warn(`[Ollama Generation Failed on ${chosenModel}]`, errMsg);
 
-      // Check for GPU VRAM Out Of Memory
-      if (errMsg.includes('out of memory') || errMsg.includes('cudaMalloc') || errMsg.includes('terminated')) {
-        console.log(`[Ollama Failover] VRAM insufficiente per ${chosenModel}. Tentativo di fallback CPU/RAM (num_gpu: 0)...`);
+      // 2. Automatic Failover to lighter model if heavy model crashed / dropped socket
+      const candidateFallbacks = [...availableModels, ...KNOWN_LIGHT_MODELS];
+      const fallback = candidateFallbacks.find(
+        m => m !== chosenModel && (m.includes('2b') || m.includes('3b') || m.includes('qwen'))
+      );
+
+      if (fallback) {
+        console.log(`[Ollama Failover] Tentativo di recupero automatico con modello leggero: ${fallback}...`);
         try {
-          const cpuAnswer = await sendGenerateRequest(chosenModel, { num_gpu: 0 });
-          return { answer: cpuAnswer, modelUsed: `${chosenModel} (CPU offload)` };
-        } catch (cpuErr) {
-          console.warn('[Ollama CPU offload failed]', cpuErr);
-        }
-
-        // Try smaller lightweight model (e.g. gemma2:2b or qwen2.5:3b) if available
-        const fallback = availableModels.find(m => m !== chosenModel && (m.includes('2b') || m.includes('3b') || m.includes('qwen')));
-        if (fallback) {
-          console.log(`[Ollama Failover] Esecuzione su modello alternativo leggero: ${fallback}...`);
+          // Wait 2.5s in case Ollama runner crashed and daemon is restarting
+          await new Promise(resolve => setTimeout(resolve, 2500));
           const fallbackAnswer = await sendGenerateRequest(fallback);
-          return { answer: fallbackAnswer, modelUsed: `${fallback} (fallback da ${chosenModel})` };
+          return {
+            answer: `${fallbackAnswer}\n\n*(Nota: Risposta elaborata automaticamente con **${fallback}** poiché **${chosenModel}** richiede più VRAM di quella disponibile sulla GPU.)*`,
+            modelUsed: `${fallback} (failover da ${chosenModel})`
+          };
+        } catch (fbErr: any) {
+          console.warn('[Ollama Failover Failed]', fbErr);
         }
       }
 
-      throw new Error(`Errore generazione risposta LLM (${chosenModel}): ${errMsg}`);
+      throw new Error(
+        `Errore generazione risposta LLM (${chosenModel}): ${errMsg}. La memoria GPU (6GB) è insufficiente per questo modello: seleziona 'gemma2:2b' dal menu a tendina.`
+      );
     }
   }
 };

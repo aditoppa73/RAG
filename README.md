@@ -72,11 +72,14 @@ graph TD
 
 ## ⚡ Avvio Rapido
 
-### 1. Avvia il Database Vettoriale (Qdrant)
+### 1. Avvia i Servizi Docker (Qdrant + Ollama con Modelli)
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
-Verifica che la dashboard Qdrant sia attiva su `http://localhost:6333/dashboard`.
+Questo comando avvierà i container:
+- **`rag-qdrant`**: database vettoriale su `http://localhost:6333`
+- **`rag-ollama`**: runtime LLM/Embedding su `http://localhost:11434` (accelerato su GPU)
+- **`rag-ollama-model-init`**: container di bootstrap che assicura la disponibilità dei modelli LLM (`gemma2:2b`) ed Embedding (`embeddinggemma`) persistiti in `./ollama_storage`.
 
 ### 2. Configura l'Ambiente Python
 ```bash

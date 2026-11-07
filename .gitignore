@@ -22,8 +22,9 @@ models/
 *.pth
 *.onnx
 
-# Qdrant Vector Storage
+# Qdrant Vector Storage & Ollama Model Storage
 qdrant_storage/
+ollama_storage/
 snapshots/
 
 # Vite / Build outputs

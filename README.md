@@ -11,7 +11,7 @@ Una piattaforma enterprise autonoma, **100% on-premise** e privacy-first per:
 1. **Ingestion Documentale Ricorsiva & Multi-Formato**: PDF, DOCX/DOC, fogli Excel (.xlsx e .xls legacy con IBM Docling e fallback Pandas), presentazioni PPTX, immagini e registrazioni audio.
 2. **Embedding Semantico Accelerato su GPU**: Microservizio locale con Google `EmbeddingGemma-2` (768 dimensioni) su CUDA (NVIDIA).
 3. **Database Vettoriale Qdrant**: Storage e ricerca vettoriale HNSW su Docker con metadati strutturati e filtri per collezione.
-4. **Ricerca Semantica RAG**: Query in linguaggio naturale con soglia minima di accuratezza a step unitario (1%) e visualizzazione dell'ambito dei documenti indicizzati.
+4. **Ricerca Semantica & Sintesi RAG con LLM (Gemma 2)**: Query in linguaggio naturale con embedding GPU su Qdrant e sintesi documentale automatica con LLM locale (Google Gemma 2 / Qwen 2.5 via Ollama) con vincolo anti-allucinazione e citazione delle fonti.
 5. **Obsidian-Style Knowledge Graph Studio**: Grafo interattivo 2D/3D con calcolo in tempo reale delle correlazioni semantiche per cosine similarity tra documenti e chunk vettoriali.
 
 ---

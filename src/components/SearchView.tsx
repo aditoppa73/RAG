@@ -14,7 +14,10 @@ import {
   ChevronDown,
   ChevronUp,
   AlertCircle,
-  ExternalLink
+  ExternalLink,
+  Bot,
+  Cpu,
+  BookOpen
 } from 'lucide-react';
 
 interface SearchResult {
@@ -48,18 +51,55 @@ export const SearchView: React.FC<SearchViewProps> = ({
   onSelectResultForGraph
 }) => {
   const [query, setQuery] = useState('');
-  const [limit, setLimit] = useState(8);
+  const [limit, setLimit] = useState(6);
   const [threshold, setThreshold] = useState(0.0);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searched, setSearched] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Generative RAG AI states
+  const [isAiGenerating, setIsAiGenerating] = useState(false);
+  const [aiAnswer, setAiAnswer] = useState<string | null>(null);
+  const [modelUsed, setModelUsed] = useState<string | null>(null);
+  const [availableModels, setAvailableModels] = useState<string[]>(['gemma2:9b', 'qwen2.5:latest']);
+  const [selectedModel, setSelectedModel] = useState<string>('gemma2:9b');
+  const [copiedAiAnswer, setCopiedAiAnswer] = useState(false);
+
   // Active Collection Metadata & Document List
   const [collectionInfo, setCollectionInfo] = useState<CollectionInfo | null>(null);
   const [isLoadingInfo, setIsLoadingInfo] = useState(false);
   const [showDocDrawer, setShowDocDrawer] = useState(false);
   const [docSearchQuery, setDocSearchQuery] = useState('');
+
+  // Fetch available LLMs from Ollama
+  const fetchAvailableModels = useCallback(async () => {
+    try {
+      const res = await fetch('/api/llm/models');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.models && data.models.length > 0) {
+          // Filter out pure embed models for LLM generative dropdown
+          const genModels = data.models.filter((m: string) => !m.includes('embed'));
+          const finalList = genModels.length > 0 ? genModels : data.models;
+          setAvailableModels(finalList);
+
+          // Priority: gemma2:9b -> other gemma2 -> qwen -> first
+          if (finalList.some((m: string) => m.startsWith('gemma2:9b'))) {
+            setSelectedModel(finalList.find((m: string) => m.startsWith('gemma2:9b')));
+          } else if (finalList.some((m: string) => m.startsWith('gemma2'))) {
+            setSelectedModel(finalList.find((m: string) => m.startsWith('gemma2')));
+          } else if (finalList.some((m: string) => m.startsWith('qwen2.5'))) {
+            setSelectedModel(finalList.find((m: string) => m.startsWith('qwen2.5')));
+          } else {
+            setSelectedModel(finalList[0]);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Could not fetch LLM models from Ollama:', err);
+    }
+  }, []);
 
   const fetchCollectionInfo = useCallback(async (col = activeCollection) => {
     setIsLoadingInfo(true);
@@ -85,14 +125,18 @@ export const SearchView: React.FC<SearchViewProps> = ({
 
   useEffect(() => {
     fetchCollectionInfo(activeCollection);
-  }, [activeCollection, fetchCollectionInfo]);
+    fetchAvailableModels();
+  }, [activeCollection, fetchCollectionInfo, fetchAvailableModels]);
 
-  const handleSearch = async (e?: React.FormEvent) => {
+  // 1. Fast Semantic Retrieval (Fragments only)
+  const handleSearchOnly = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!query.trim()) return;
 
     setLoading(true);
     setSearched(true);
+    setAiAnswer(null);
+    setModelUsed(null);
 
     try {
       const res = await fetch('/api/search', {
@@ -116,10 +160,52 @@ export const SearchView: React.FC<SearchViewProps> = ({
     }
   };
 
+  // 2. Full RAG: Vector Retrieval + Generative Synthesis with LLM (Gemma 2)
+  const handleAskAi = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!query.trim()) return;
+
+    setIsAiGenerating(true);
+    setSearched(true);
+    setAiAnswer(null);
+
+    try {
+      const res = await fetch('/api/rag/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: query.trim(),
+          collectionName: activeCollection,
+          limit,
+          threshold,
+          model: selectedModel
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Errore durante la generazione RAG');
+      setAiAnswer(data.answer);
+      setModelUsed(data.modelUsed || selectedModel);
+      setResults(data.sources || []);
+    } catch (err: any) {
+      console.error(err);
+      setAiAnswer(`Si è verificato un errore durante l'elaborazione con il modello: ${err.message}`);
+      setResults([]);
+    } finally {
+      setIsAiGenerating(false);
+    }
+  };
+
   const copyToClipboard = (id: string, text: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const copyAiAnswer = () => {
+    if (!aiAnswer) return;
+    navigator.clipboard.writeText(aiAnswer);
+    setCopiedAiAnswer(true);
+    setTimeout(() => setCopiedAiAnswer(false), 2000);
   };
 
   const getScoreBadge = (score: number) => {
@@ -150,54 +236,98 @@ export const SearchView: React.FC<SearchViewProps> = ({
       {/* Header */}
       <div className="text-center max-w-2xl mx-auto space-y-2">
         <h2 className="text-2xl font-bold text-white tracking-tight flex items-center justify-center gap-2">
-          <Sparkles className="w-6 h-6 text-blue-400" />
-          Ricerca Semantica RAG
+          <Sparkles className="w-6 h-6 text-purple-400" />
+          Ricerca Semantica & RAG Studio
         </h2>
         <p className="text-sm text-gray-400">
-          Interroga la base di conoscenza tramite embedding vettoriali. I documenti più rilevanti
-          vengono estratti e classificati per similarità coseno.
+          Interroga la base di conoscenza tramite embedding <strong>EmbeddingGemma-2</strong> su Qdrant e
+          fai sintetizzare la risposta direttamente a <strong>Gemma 2</strong> (Ollama).
         </p>
       </div>
 
       {/* Search Bar Form */}
       <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-5 shadow-xl">
-        <form onSubmit={handleSearch} className="space-y-4">
+        <form onSubmit={handleAskAi} className="space-y-4">
           <div className="relative flex items-center">
             <Search className="absolute left-4 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Fai una domanda o cerca concetti (es: 'Come funziona la procedura straordinaria?')..."
+              placeholder="Fai una domanda sui tuoi documenti (es: 'Quali sono i termini contrattuali di rinnovo?')..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full bg-[#0d1117] border border-[#30363d] focus:border-blue-500 rounded-xl pl-12 pr-28 py-3.5 text-base text-gray-100 placeholder-gray-500 focus:outline-none transition"
+              className="w-full bg-[#0d1117] border border-[#30363d] focus:border-purple-500 rounded-xl pl-12 pr-64 py-3.5 text-base text-gray-100 placeholder-gray-500 focus:outline-none transition"
             />
-            <button
-              type="submit"
-              disabled={loading || !query.trim()}
-              className="absolute right-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm disabled:opacity-50 transition shadow"
-            >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Cerca'}
-            </button>
+            
+            {/* Action buttons inside search bar */}
+            <div className="absolute right-2 flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleSearchOnly}
+                disabled={loading || isAiGenerating || !query.trim()}
+                title="Cerca solo i frammenti vettoriali senza passare da LLM"
+                className="px-3.5 py-2 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 hover:text-white font-medium text-xs disabled:opacity-50 transition border border-[#30363d]"
+              >
+                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Solo Frammenti'}
+              </button>
+              
+              <button
+                type="submit"
+                disabled={loading || isAiGenerating || !query.trim()}
+                title="Genera risposta con Gemma 2 / LLM basata sui documenti"
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-semibold text-xs disabled:opacity-50 transition shadow-lg flex items-center gap-1.5"
+              >
+                {isAiGenerating ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Analisi...</span>
+                  </>
+                ) : (
+                  <>
+                    <Bot className="w-3.5 h-3.5" />
+                    <span>Rispondi con AI</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
-          {/* Filters and Controls */}
+          {/* Filters, Model Selector and Controls */}
           <div className="flex flex-wrap items-center justify-between gap-4 pt-2 text-xs text-gray-400 border-t border-[#30363d]">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
+              {/* LLM Model Dropdown */}
+              <div className="flex items-center gap-1.5 bg-[#0d1117] px-2.5 py-1 rounded-lg border border-[#30363d]">
+                <Cpu className="w-3.5 h-3.5 text-purple-400" />
+                <span className="text-gray-300 font-medium">Modello LLM:</span>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="bg-transparent text-purple-300 font-mono text-xs focus:outline-none cursor-pointer"
+                >
+                  {availableModels.map((m) => (
+                    <option key={m} value={m} className="bg-[#161b22] text-gray-200">
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Max Results */}
               <div className="flex items-center gap-2">
                 <Sliders className="w-3.5 h-3.5 text-gray-400" />
-                <span>Max Risultati:</span>
+                <span>Max Fonti:</span>
                 <input
                   type="range"
                   min="2"
-                  max="20"
+                  max="15"
                   step="1"
                   value={limit}
                   onChange={(e) => setLimit(Number(e.target.value))}
-                  className="w-24 accent-blue-500"
+                  className="w-20 accent-purple-500"
                 />
                 <span className="font-mono text-gray-200">{limit}</span>
               </div>
 
+              {/* Threshold */}
               <div className="flex items-center gap-2 border-l border-[#30363d] pl-4">
                 <span>Soglia Minima:</span>
                 <input
@@ -207,7 +337,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
                   step="0.01"
                   value={threshold}
                   onChange={(e) => setThreshold(parseFloat(Number(e.target.value).toFixed(2)))}
-                  className="w-28 accent-blue-500 cursor-pointer"
+                  className="w-24 accent-purple-500 cursor-pointer"
                 />
                 <span className="font-mono text-gray-200 min-w-[32px] text-right font-medium">
                   {Math.round(threshold * 100)}%
@@ -231,11 +361,11 @@ export const SearchView: React.FC<SearchViewProps> = ({
         </form>
       </div>
 
-      {/* Target Collection Info & Workspace Scope Card (Sotto la form di ricerca) */}
+      {/* Target Collection Info & Workspace Scope Card */}
       <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-4 shadow-lg space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-blue-600/15 border border-blue-500/30 rounded-xl text-blue-400">
+            <div className="p-2.5 bg-purple-600/15 border border-purple-500/30 rounded-xl text-purple-400">
               <Database className="w-5 h-5" />
             </div>
             <div>
@@ -256,7 +386,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
                 )}
               </div>
               <p className="text-[11px] text-gray-500 mt-0.5">
-                La query vettorializzata con Google Gemma 2 (768d GPU) cerca in questo indice Qdrant
+                Vettorializzazione con <strong>EmbeddingGemma-2</strong> (768d GPU) e analisi generativa via <strong>{selectedModel}</strong>
               </p>
             </div>
           </div>
@@ -280,9 +410,12 @@ export const SearchView: React.FC<SearchViewProps> = ({
 
             <button
               type="button"
-              onClick={() => fetchCollectionInfo(activeCollection)}
+              onClick={() => {
+                fetchCollectionInfo(activeCollection);
+                fetchAvailableModels();
+              }}
               disabled={isLoadingInfo}
-              title="Ricarica info collezione da Qdrant"
+              title="Ricarica info collezione e modelli"
               className="p-1.5 rounded-lg text-gray-400 hover:text-white bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] transition disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoadingInfo ? 'animate-spin text-blue-400' : ''}`} />
@@ -373,12 +506,80 @@ export const SearchView: React.FC<SearchViewProps> = ({
         )}
       </div>
 
-      {/* Results Section */}
+      {/* AI Generative RAG Answer Card */}
+      {isAiGenerating && (
+        <div className="bg-gradient-to-r from-purple-950/40 to-blue-950/30 border border-purple-500/40 rounded-2xl p-6 shadow-xl space-y-3 animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-purple-600/30 border border-purple-500/50 rounded-xl text-purple-300">
+              <Bot className="w-5 h-5 animate-spin" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <span>Analisi RAG in corso con {selectedModel}...</span>
+              </h3>
+              <p className="text-xs text-gray-400">
+                Estrazione vettoriale dei chunk da Qdrant e sintesi della risposta senza allucinazioni.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {aiAnswer && (
+        <div className="bg-[#121024] border border-purple-500/50 rounded-2xl p-6 shadow-2xl space-y-4 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between gap-4 border-b border-purple-900/40 pb-3 flex-wrap">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 bg-purple-600/20 border border-purple-500/40 rounded-xl text-purple-300">
+                <Bot className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <span>Risposta dell'Assistente RAG</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-950 text-purple-300 border border-purple-700/60">
+                    {modelUsed || selectedModel}
+                  </span>
+                </h3>
+                <span className="text-[11px] text-gray-400 flex items-center gap-1 mt-0.5">
+                  <BookOpen className="w-3 h-3 text-purple-400" />
+                  Sintesi generata sulla base di <strong>{results.length} frammenti</strong> estratti da Qdrant
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={copyAiAnswer}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#1c1938] hover:bg-[#28244f] text-purple-200 border border-purple-800/40 transition"
+            >
+              {copiedAiAnswer ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-emerald-300">Copiato!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copia Risposta</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* AI Response Text */}
+          <div className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap font-sans bg-[#0d0c18] p-4 rounded-xl border border-purple-900/30">
+            {aiAnswer}
+          </div>
+        </div>
+      )}
+
+      {/* Results Section (Document Chunks) */}
       <div className="space-y-4">
         {searched && (
           <div className="flex items-center justify-between px-2 text-xs text-gray-400">
             <span>
-              Trovati <strong className="text-white">{results.length}</strong> chunk pertinenti per "{query}"
+              {aiAnswer ? 'Fonti documentali consultate da Qdrant:' : `Trovati ${results.length} frammenti pertinenti per "${query}":`}
+            </span>
+            <span className="text-gray-500 font-mono">
+              {results.length} frammenti
             </span>
           </div>
         )}
@@ -393,7 +594,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
             {results.map((res) => (
               <div
                 key={res.id}
-                className="bg-[#161b22] border border-[#30363d] hover:border-blue-500/50 transition-all rounded-xl p-5 shadow-sm space-y-3 group"
+                className="bg-[#161b22] border border-[#30363d] hover:border-purple-500/50 transition-all rounded-xl p-5 shadow-sm space-y-3 group"
               >
                 {/* Header card */}
                 <div className="flex items-center justify-between gap-4">
@@ -403,9 +604,9 @@ export const SearchView: React.FC<SearchViewProps> = ({
                     ) : /\.(mp3|wav|m4a|ogg)$/i.test(res.source) ? (
                       <span className="text-base">🎙️</span>
                     ) : (
-                      <FileText className="w-4 h-4 text-blue-400" />
+                      <FileText className="w-4 h-4 text-purple-400" />
                     )}
-                    <span className="font-semibold text-sm text-white group-hover:text-blue-300 transition">
+                    <span className="font-semibold text-sm text-white group-hover:text-purple-300 transition">
                       {res.source}
                     </span>
                     {res.chunkIndex !== undefined && !/\.(png|jpe?g|webp|bmp|mp3|wav|m4a)$/i.test(res.source) && (
@@ -468,7 +669,7 @@ export const SearchView: React.FC<SearchViewProps> = ({
               </div>
             ))}
           </div>
-        ) : searched ? (
+        ) : searched && !isAiGenerating ? (
           <div className="py-12 text-center bg-[#161b22] border border-[#30363d] rounded-2xl p-8 space-y-2">
             <p className="text-gray-300 font-medium">Nessun risultato rilevante trovato</p>
             <p className="text-xs text-gray-500">
@@ -480,4 +681,3 @@ export const SearchView: React.FC<SearchViewProps> = ({
     </div>
   );
 };
-

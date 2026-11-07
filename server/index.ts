@@ -430,6 +430,78 @@ app.post('/api/search', async (req, res) => {
   }
 });
 
+// 6b. List Generative LLM Models from Ollama
+app.get('/api/llm/models', async (req, res) => {
+  try {
+    const models = await ollama.listModels();
+    res.json({ models });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6c. Complete RAG Pipeline: Vector Search in Qdrant + LLM Analysis & Answer
+app.post('/api/rag/ask', async (req, res) => {
+  try {
+    const { query, collectionName = DEFAULT_COLLECTION, limit = 6, threshold = 0.0, model } = req.body;
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({ error: 'Query di ricerca non valida.' });
+    }
+
+    // 1. Vectorize query with EmbeddingGemma-2 on GPU
+    const queryEmbedding = await ollama.getEmbedding(query);
+
+    // 2. Retrieve most relevant chunks from Qdrant
+    const matches = await qdrant.search(collectionName, queryEmbedding, limit, threshold);
+
+    const formatted = matches.map(m => {
+      const payload = m.payload as any;
+      return {
+        id: m.id,
+        score: Number(m.score.toFixed(4)),
+        source: payload?.source || payload?.metadata?.source || 'Sconosciuto',
+        text: payload?.text || payload?.page_content || '',
+        chunkIndex: payload?.chunkIndex,
+        totalChunks: payload?.totalChunks,
+        metadata: payload?.metadata
+      };
+    });
+
+    if (formatted.length === 0) {
+      return res.json({
+        query,
+        answer: "Non sono stati trovati documenti pertinenti nella collezione specificata con la soglia di similarità impostata.",
+        modelUsed: model || 'none',
+        sourcesCount: 0,
+        sources: []
+      });
+    }
+
+    // 3. Synthesize answer with generative LLM (Gemma 2 / Qwen 2.5)
+    const genResult = await ollama.generateAnswer({
+      query,
+      contexts: formatted.map(f => ({
+        source: f.source,
+        text: f.text,
+        score: f.score,
+        chunkIndex: f.chunkIndex
+      })),
+      model
+    });
+
+    res.json({
+      query,
+      answer: genResult.answer,
+      modelUsed: genResult.modelUsed,
+      sourcesCount: formatted.length,
+      sources: formatted
+    });
+  } catch (err: any) {
+    console.error('[RAG Ask Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 7. Obsidian-Style Connected Graph
 app.get('/api/graph', async (req, res) => {
   try {
